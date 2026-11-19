@@ -1,0 +1,98 @@
+# Runs only for a pushed tag such as v1.2.3. See docs/RELEASING.md.
+name: Release
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Release artifacts are built with this exact pinned compiler; go.mod's
+      # `go 1.25` is only the language minimum for library consumers.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+      # govulncheck analyzes the toolchain's standard library, so it scans a
+      # binary built by the same Go 1.27.4 that builds the artifacts below.
+      # Binary mode is used because govulncheck v1.10.0's source-mode parser
+      # predates go1.27 language features.
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+          CGO_ENABLED=0 go build -trimpath -o /tmp/maker ./cmd/maker
+          govulncheck -mode=binary /tmp/maker
+  build:
+    needs: verify
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # darwin builds use cgo for the Keychain adapter, so they need macOS runners.
+          - {runner: macos-latest, goos: darwin, goarch: arm64, cgo: '1'}
+          - {runner: macos-latest, goos: darwin, goarch: amd64, cgo: '1'}
+          - {runner: ubuntu-latest, goos: linux, goarch: amd64, cgo: '0'}
+          - {runner: ubuntu-latest, goos: linux, goarch: arm64, cgo: '0'}
+          - {runner: ubuntu-latest, goos: windows, goarch: amd64, cgo: '0'}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      # Must match the compiler pinned in the verify job above.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Build
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          ext=''
+          if [ "$GOOS" = windows ]; then ext='.exe'; fi
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X github.com/SENTINELITE/elgato-makers-cli/internal/cli.Version=${TAG#v}" \
+            -o "dist/maker_${TAG#v}_${GOOS}_${GOARCH}${ext}" ./cmd/maker
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maker-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: maker-*
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum maker_* > SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/maker_*
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=''
+          case "$TAG" in *-*) prerelease='--prerelease' ;; esac
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag $prerelease

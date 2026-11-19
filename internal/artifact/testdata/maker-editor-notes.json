@@ -1,0 +1,121 @@
+[
+  {
+    "name": "flat_paragraphs",
+    "markdown": "a\n\nb",
+    "text": "a\n\nb",
+    "count": 4,
+    "serialized": "a\n\nb"
+  },
+  {
+    "name": "flat_list",
+    "markdown": "- a\n- b",
+    "text": "\n\n\n\na\n\n\n\nb",
+    "count": 10,
+    "serialized": "- a\n- b"
+  },
+  {
+    "name": "soft_break",
+    "markdown": "a\nb",
+    "text": "a\nb",
+    "count": 3,
+    "serialized": "a\nb"
+  },
+  {
+    "name": "hard_break_spaces",
+    "markdown": "a  \nb",
+    "text": "a\nb",
+    "count": 3,
+    "serialized": "a\nb"
+  },
+  {
+    "name": "hard_break_backslash",
+    "markdown": "a\\\nb",
+    "text": "a\nb",
+    "count": 3,
+    "serialized": "a\nb"
+  },
+  {
+    "name": "escaped_backslashes_before_break",
+    "markdown": "a\\\\\\\nb",
+    "text": "a\\\nb",
+    "count": 4,
+    "serialized": "a\\\\\nb"
+  },
+  {
+    "name": "literal_terminal_backslash",
+    "markdown": "a\\\n",
+    "text": "a\\",
+    "count": 2,
+    "serialized": "a\\\\"
+  },
+  {
+    "name": "nested_bullets",
+    "markdown": "- a\n  - b",
+    "text": "\n\n\n\na\n\n\n\n\n\nb",
+    "count": 12,
+    "serialized": "- a\n  - b"
+  },
+  {
+    "name": "mixed_three_level_list",
+    "markdown": "- a\n  1. b\n     - c\n- d",
+    "text": "\n\n\n\na\n\n\n\n\n\nb\n\n\n\n\n\nc\n\n\n\nd",
+    "count": 24,
+    "serialized": "- a\n  1. b\n     - c\n- d"
+  },
+  {
+    "name": "ordered_parent_width",
+    "markdown": "12. a\n    - b",
+    "text": "\n\n\n\na\n\n\n\n\n\nb",
+    "count": 12,
+    "serialized": "12. a\n    - b"
+  },
+  {
+    "name": "nested_continuation",
+    "markdown": "- a\n  - b\n    continued",
+    "text": "\n\n\n\na\n\n\n\n\n\nb\ncontinued",
+    "count": 22,
+    "serialized": "- a\n  - b\n    continued"
+  },
+  {
+    "name": "nested_loose_list",
+    "markdown": "- a\n\n  another paragraph\n  - b",
+    "text": "\n\n\n\na\n\nanother paragraph\n\n\n\n\n\nb",
+    "count": 31,
+    "serialized": "- a\n\n  another paragraph\n\n  - b"
+  },
+  {
+    "name": "soft_break_inside_emphasis",
+    "markdown": "**a\nb**",
+    "text": "a\nb",
+    "count": 3,
+    "serialized": "**a\nb**"
+  },
+  {
+    "name": "soft_break_inside_link",
+    "markdown": "[a\nb](https://example.test)",
+    "text": "a\nb",
+    "count": 3,
+    "serialized": "[a\nb](https://example.test)"
+  },
+  {
+    "name": "escaped_entity",
+    "markdown": "a \\&amp; b\n&amp;lt;",
+    "text": "a &amp; b\n&lt;",
+    "count": 14,
+    "serialized": "a &amp; b\n&lt;"
+  },
+  {
+    "name": "numeric_entity_and_astral_unicode",
+    "markdown": "Hi &#x1F600;\n😀 &amp; [world](https://example.test)",
+    "text": "Hi 😀\n😀 & world",
+    "count": 16,
+    "serialized": "Hi 😀\n😀 & [world](https://example.test)"
+  },
+  {
+    "name": "combined_crlf",
+    "markdown": "a  \r\nb\\\r\nc\r\n\r\n- **Parent** 😀 &amp; more\r\n  - [Child](https://example.test)\r\n    continuation `x`\r\n  - Last\r\n- Done\r\n",
+    "text": "a\nb\nc\n\n\n\n\n\nParent 😀 & more\n\n\n\n\n\nChild\ncontinuation x\n\n\n\nLast\n\n\n\nDone",
+    "count": 69,
+    "serialized": "a\nb\nc\n\n- **Parent** 😀 & more\n  - [Child](https://example.test)\n    continuation `x`\n  - Last\n- Done"
+  }
+]

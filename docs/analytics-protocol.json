@@ -1,0 +1,53 @@
+{
+  "method": "GET",
+  "path": "/api/organizations/{organization}/analytics",
+  "query": {
+    "start": "YYYY-MM-DD",
+    "end": "YYYY-MM-DD"
+  },
+  "rangeInclusive": true,
+  "responseKeys": [
+    "time_range",
+    "totals_in_range",
+    "totals_per_day",
+    "products"
+  ],
+  "pricingFilter": "client-side by products[].is_free",
+  "viewsShareResponse": true,
+  "compareRange": {
+    "start": "2026-10-19",
+    "end": "2026-10-25"
+  },
+  "customRangeCheck": {
+    "days": 7,
+    "first": "2026-10-01",
+    "last": "2026-10-07",
+    "status": 200,
+    "time_range": {
+      "end": "2026-10-07",
+      "start": "2026-10-01"
+    }
+  },
+  "availableAllTime": {
+    "start": "2025-10-01",
+    "end": "2026-11-01"
+  },
+  "dailyAvailableFrom": "2025-10-01",
+  "currency": "USD",
+  "revenueUnit": "integer cents",
+  "views": [
+    "overview",
+    "products"
+  ],
+  "presets": [
+    "yesterday",
+    "7d",
+    "30d",
+    "60d",
+    "90d",
+    "month",
+    "year",
+    "all-time",
+    "custom"
+  ]
+}

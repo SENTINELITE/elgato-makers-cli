@@ -1,0 +1,29 @@
+name: Windows
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Same pinned compiler as ci.yml and the release workflow.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Vet
+        run: go vet ./...
+      # Private-storage packages exercise ACL privacy, reparse-point refusal,
+      # exclusive locks and durable checkpoint writes. -race is left off: the
+      # cgo race runtime is unreliable on windows runners; functional and
+      # security coverage is kept instead.
+      - name: Storage security tests
+        run: go test ./internal/filesec/... ./internal/testutil/... ./internal/auth/... ./internal/draft/... ./internal/release/... ./internal/listing/... ./internal/deletion/... ./internal/discounts/... ./internal/cli/...
+      - name: Build all packages
+        run: go build ./...

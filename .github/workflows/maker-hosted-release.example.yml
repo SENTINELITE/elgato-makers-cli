@@ -1,0 +1,66 @@
+name: Maker hosted release example
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    # Use a dedicated hosted policy with preflight_only: true.
+    if: >-
+      ${{ vars.MAKER_CI_PREFLIGHT_ENABLED == 'true' &&
+          github.repository == vars.MAKER_CI_REPOSITORY &&
+          github.ref == vars.MAKER_CI_PREFLIGHT_REF &&
+          github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-latest
+    environment: maker-preflight
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build a package and install trusted Maker CLI
+        shell: bash
+        run: |
+          echo 'Replace this step with your reviewed build and trusted Maker CLI installation.' >&2
+          exit 1
+      - name: Validate package and Marketplace readiness
+        env:
+          MAKER_CI_POLICY: ${{ vars.MAKER_CI_PREFLIGHT_POLICY }}
+        run: |
+          maker mcp ci preflight \
+            --file dist/plugin.streamDeckPlugin \
+            --policy "$MAKER_CI_POLICY" \
+            --server https://makers.sentinelite.com \
+            --json
+  release:
+    if: >-
+      ${{ vars.MAKER_CI_RELEASE_ENABLED == 'true' &&
+          github.repository == vars.MAKER_CI_REPOSITORY &&
+          github.ref == 'refs/heads/main' &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    runs-on: macos-latest
+    environment: maker-production
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: maker-production-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and sign your package and install trusted Maker CLI
+        shell: bash
+        run: |
+          echo 'Replace this step with your reviewed build/signing pipeline and trusted Maker CLI installation.' >&2
+          exit 1
+      - name: Submit or queue under the owner-approved hosted policy
+        env:
+          MAKER_CI_POLICY: ${{ vars.MAKER_CI_POLICY }}
+        run: |
+          maker mcp ci release \
+            --file dist/plugin.streamDeckPlugin \
+            --policy "$MAKER_CI_POLICY" \
+            --server https://makers.sentinelite.com \
+            --json

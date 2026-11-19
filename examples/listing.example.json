@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "name": "Example Plugin",
+  "package": "./dist/com.example.plugin.streamDeckPlugin",
+  "description_file": "./description.md",
+  "release_notes_file": "./release-notes.md",
+  "pricing": {
+    "type": "paid",
+    "amount": "13.37",
+    "currency": "USD"
+  },
+  "languages": ["English"],
+  "categories": ["Productivity"],
+  "links": {
+    "Support": "https://example.com/support"
+  },
+  "assets": {
+    "icon": "./assets/icon.png",
+    "thumbnail": "./assets/thumbnail.png",
+    "gallery": [
+      "./assets/gallery-01.png",
+      "./assets/gallery-02.png",
+      "./assets/gallery-03.png"
+    ]
+  },
+  "auto_publish": false,
+  "gallery_upload_mode": "sequential"
+}

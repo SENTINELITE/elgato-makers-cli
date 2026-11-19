@@ -1,0 +1,73 @@
+contract 1.2.0
+
+const ContractVersion = "1.2.0"
+
+func (c *Client) Analytics(ctx context.Context, org, start, end string) (json.RawMessage, error)
+
+func (c *Client) BeginReadPhase(ctx context.Context) context.Context
+
+func (c *Client) CatalogMetadata(ctx context.Context, org string) (json.RawMessage, error)
+
+func (c *Client) CatalogProduct(ctx context.Context, org, product string) (json.RawMessage, error)
+
+func (c *Client) Check(ctx context.Context, org string) error
+
+func (c *Client) CheckVersionMutation(ctx context.Context, org, productID, variantID, uuid, requestedVersion string) error
+
+func (c *Client) Credentials() (Credentials, error)
+
+func (c *Client) Discount(ctx context.Context, org, id string) (json.RawMessage, error)
+
+func (c *Client) Discounts(ctx context.Context, org, status string) (json.RawMessage, error)
+
+func (c *Client) Ensure(ctx context.Context) error
+
+func (c *Client) ProductDetails(ctx context.Context, org, product string) (json.RawMessage, error)
+
+func (c *Client) ProductMedia(ctx context.Context, org, product string, inspect bool) (json.RawMessage, error)
+
+func (c *Client) Products(ctx context.Context, org string) (json.RawMessage, error)
+
+func (c *Client) Refresh(ctx context.Context) error
+
+func (c *Client) Versions(ctx context.Context, org, productID, variantID, uuid string) (json.RawMessage, error)
+
+func (c *Client) WorkflowBackend() *maker.Client
+
+func Encode(c Credentials) ([]byte, error)
+
+func New(creds Credentials, cfg Config) (*Client, error)
+
+func NewWorkflowClient(creds Credentials, cfg Config) (*Client, error)
+
+func Parse(r io.Reader) (Credentials, error)
+
+type AnalyticsRangeError = maker.AnalyticsRangeError
+
+type Client struct{}
+
+type Config struct {
+	BaseURL		string
+	UploadTransport	http.RoundTripper
+	HTTPClient	*http.Client
+	AllowLocalhost	bool
+}
+
+type Credentials = auth.Credentials
+
+var ErrAuthentication = maker.ErrAuthentication
+
+var ErrDuplicateVersion = model.ErrDuplicateVersion
+
+var ErrUnrecognizedVersionLifecycle = model.ErrUnrecognizedVersionLifecycle
+
+var ErrVersionInReview = model.ErrVersionInReview
+
+aliased members
+*maker.AnalyticsRangeError.Error func(*maker.AnalyticsRangeError) string
+auth.Credentials.Cookies func(auth.Credentials) []*http.Cookie
+auth.Credentials.Expiry func(auth.Credentials) *time.Time
+auth.Credentials.GoString func(auth.Credentials) string
+auth.Credentials.String func(auth.Credentials) string
+maker.AnalyticsRangeError field Requested maker.AnalyticsTimeRange
+maker.AnalyticsRangeError field Returned maker.AnalyticsTimeRange

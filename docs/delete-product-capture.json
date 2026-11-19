@@ -1,0 +1,30 @@
+{
+  "operation": "deleteProductAction",
+  "confirmedByUser": true,
+  "deletedProductName": "Example Product",
+  "productId": "00000000-0000-4000-8000-0000000000b1",
+  "request": {
+    "id": "97179.1895",
+    "method": "POST",
+    "url": "https://maker.elgato.com/00000000-0000-4000-8000-0000000000a1/products/00000000-0000-4000-8000-0000000000b1",
+    "action": "6089d5ae8cc748b6604ceb9373c4da62842759b431",
+    "body": "------WebKitFormBoundary5VokoClrhqGat1hK\r\nContent-Disposition: form-data; name=\"_1_organization_id\"\r\n\r\n00000000-0000-4000-8000-0000000000a1\r\n------WebKitFormBoundary5VokoClrhqGat1hK\r\nContent-Disposition: form-data; name=\"_1_product_id\"\r\n\r\n00000000-0000-4000-8000-0000000000b1\r\n------WebKitFormBoundary5VokoClrhqGat1hK\r\nContent-Disposition: form-data; name=\"0\"\r\n\r\n[{\"success\":false},\"$K1\"]\r\n------WebKitFormBoundary5VokoClrhqGat1hK--\r\n"
+  },
+  "response": {
+    "status": 303,
+    "contentType": "text/x-component",
+    "bodyAvailable": false
+  },
+  "verification": "Navigated to organization products; Example Product absent from full displayed product list.",
+  "dynamicActionEvidence": [
+    {
+      "path": "https://maker.elgato.com/_next/static/chunks/app/%5Borganization_id%5D/products/page-30f3c5817623553b.js",
+      "source": "(e,t,s)=>{\"use strict\";s.d(t,{F:()=>r});var n=s(30926);let r=(0,n.createServerReference)(\"6089d5ae8cc748b6604ceb9373c4da62842759b431\",n.callServer,void 0,n.findSourceMapURL,\"deleteProductAction\")},29436:(e,t,s)=>{\"use strict\";s.d(t,{a:()=>i});var n=s(12115),r=s(40407);let i=()=>(0,n.useContext)(r.m)},30926:(e,t,s)=>{\"use strict\";Object.defineProperty(t,\"__esModule\",{value:!0}),!function(e,t){for(var s in t)Object.defineProperty(e,s,{enu"
+    },
+    {
+      "path": "https://maker.elgato.com/_next/static/chunks/3315-f6d4a6c3e62e56eb.js",
+      "source": ")]})}},20994:(e,t,a)=>{a.d(t,{F:()=>i});var n=a(30926);let i=(0,n.createServerReference)(\"6089d5ae8cc748b6604ceb9373c4da62842759b431\",n.callServer,void 0,n.findSourceMapURL,\"deleteProductAction\")},29436:(e,t,a)=>{a.d(t,{a:()=>s});var n=a(12115),i=a(40407);let s=()=>(0,n.useContext)(i.m)},34238:(e,t,a)=>{a.d(t,{NA:()=>function e(t){let a=arguments.length>1&&void 0!==arguments[1]?arguments[1]:new FormData,n=arguments.length>2&&void 0!==ar"
+    }
+  ],
+  "irreversibleWarning": "Deleting this product will permanently remove it from the system. This action cannot be reversed."
+}

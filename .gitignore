@@ -1,0 +1,14 @@
+/bin/
+/dist/
+*.har
+*.cookies
+*.credentials.json
+*.session.json
+.DS_Store
+
+# Secrets and local environment files
+.env
+.env.*
+*.key
+*.enc
+*.pem

@@ -1,0 +1,1 @@
+Example Plugin brings your everyday controls to Stream Deck so you can trigger actions and check their status from your keys. Choose the actions you use most, configure their settings, and keep them together in your workspace. Replace this example with an accurate description of your plugin, including its supported software, operating systems, features, and setup requirements.

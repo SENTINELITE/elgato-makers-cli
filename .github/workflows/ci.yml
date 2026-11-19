@@ -1,0 +1,56 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS exercises the cgo Keychain adapter; Linux covers the no-cgo path.
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the exact compiler used for release artifacts; the go.mod
+      # `go 1.25` directive is only the language minimum for library consumers.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Same pinned compiler as the release workflow.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Build without cgo
+        run: CGO_ENABLED=0 go build ./...
+      - name: Confirm no private repository dependency
+        run: |
+          if go list -deps ./... | grep -i 'stream-deck-makers-mcp'; then
+            echo 'The public CLI must not depend on the private MCP repository.' >&2
+            exit 1
+          fi
+      # govulncheck analyzes the standard library of the toolchain that built
+      # the binary, so it must scan artifacts built by the same Go 1.27.4 used
+      # for releases; a scan under a different compiler would be meaningless.
+      # Binary mode is used because govulncheck v1.10.0's source-mode parser
+      # predates go1.27 language features. govulncheck is pinned to a reviewed
+      # release, not @latest.
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+          CGO_ENABLED=0 go build -trimpath -o /tmp/maker ./cmd/maker
+          govulncheck -mode=binary /tmp/maker
