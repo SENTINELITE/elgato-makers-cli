@@ -19,8 +19,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Resolve build version
@@ -39,7 +39,7 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: github.event_name == 'push' && github.ref_type == 'tag'
         with:
           go-version: '1.27.4'
@@ -72,8 +72,8 @@ jobs:
       VERSION: ${{ needs.metadata.outputs.version }}
       BINARY: maker_${{ needs.metadata.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.27.4'
       - name: Build and check version
@@ -87,7 +87,7 @@ jobs:
           go build -trimpath -ldflags "-s -w -X github.com/SENTINELITE/elgato-makers-cli/internal/cli.Version=$VERSION" \
             -o "dist/$BINARY" ./cmd/maker
           [[ "$( "./dist/$BINARY" --version | tr -d '\r' )" == "maker version $VERSION" ]]
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ env.BINARY }}
           path: dist/${{ env.BINARY }}
@@ -99,11 +99,11 @@ jobs:
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           pattern: binary-*
@@ -114,7 +114,7 @@ jobs:
           npm pack ./npm-package --ignore-scripts --pack-destination dist
           cd dist
           sha256sum maker_* sentinelite-elgato-makers-cli-*.tgz > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: maker-dist-${{ env.VERSION }}
           path: dist/
@@ -130,10 +130,10 @@ jobs:
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: maker-dist-${{ env.VERSION }}
           path: dist
@@ -159,12 +159,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: maker-dist-${{ needs.metadata.outputs.version }}
           path: dist
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/maker_*
