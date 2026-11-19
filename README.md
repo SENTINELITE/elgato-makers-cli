@@ -6,6 +6,13 @@ Normal CLI use needs only your Maker session, not a private MCP service. Optiona
 
 ## Install and supported platforms
 
+Once published, the npm package installs `maker` with Node.js 20 or later:
+
+```sh
+npm install -g @sentinelite/elgato-makers-cli
+maker --version
+```
+
 Use a binary matching your OS and architecture from the [releases page](https://github.com/SENTINELITE/elgato-makers-cli/releases), when published. Verify its checksum against the accompanying `SHA256SUMS`. Do not assume an unsigned binary is notarized or that hosted delivery has been accepted by the provider.
 
 | Platform | Build/install | Maker credential storage and support boundary |

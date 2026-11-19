@@ -1,0 +1,59 @@
+name: Publish CLI to npm
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing GitHub release tag, for example v0.9.0'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Download and verify the released npm tarball
+        id: package
+        env:
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node scripts/build-version.mjs "$TAG")
+          [[ "$TAG" == "v$version" ]]
+          file="sentinelite-elgato-makers-cli-$version.tgz"
+          mkdir dist
+          gh release download "$TAG" --pattern "$file" --pattern SHA256SUMS --dir dist
+          (cd dist && sha256sum --check --strict --ignore-missing SHA256SUMS)
+          gh attestation verify "dist/$file" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-ref "refs/tags/$TAG" --deny-self-hosted-runners
+          tar -xOf "dist/$file" package/package.json | node -e '
+            const manifest = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+            if (manifest.name !== "@sentinelite/elgato-makers-cli" || manifest.version !== process.argv[1]) {
+              process.exit(1);
+            }
+          ' "$version"
+          echo "file=dist/$file" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "dist-tag=next" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "dist-tag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Publish with npm Trusted Publishing
+        env:
+          PACKAGE: ${{ steps.package.outputs.file }}
+          DIST_TAG: ${{ steps.package.outputs.dist-tag }}
+        run: |
+          npm install --global npm@11.21.0 --ignore-scripts
+          npm publish "$PACKAGE" --access public --tag "$DIST_TAG" --ignore-scripts

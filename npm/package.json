@@ -1,0 +1,23 @@
+{
+  "name": "@sentinelite/elgato-makers-cli",
+  "private": true,
+  "description": "An independent command-line tool for Elgato Marketplace makers",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SENTINELITE/elgato-makers-cli.git"
+  },
+  "homepage": "https://makers.sentinelite.com",
+  "bugs": "https://github.com/SENTINELITE/elgato-makers-cli/issues",
+  "bin": {
+    "maker": "bin/maker.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": ["bin/", "native/"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

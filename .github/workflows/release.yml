@@ -1,75 +1,158 @@
-# Runs only for a pushed tag such as v1.2.3. See docs/RELEASING.md.
-name: Release
+name: Build and release
 on:
   push:
+    branches: [main]
     tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Build version, for example 0.9.0 or 1.0.0-rc.1'
+        type: string
+        required: true
+
 permissions:
   contents: read
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+
 jobs:
-  verify:
+  metadata:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      # Release artifacts are built with this exact pinned compiler; go.mod's
-      # `go 1.25` is only the language minimum for library consumers.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Resolve build version
+        id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ -n "$TAG" ]]; then
+            version=$(node scripts/build-version.mjs "$TAG")
+            [[ "$TAG" == "v$version" ]]
+          elif [[ -n "$REQUESTED_VERSION" ]]; then
+            version=$(node scripts/build-version.mjs "$REQUESTED_VERSION")
+          else
+            version=$(node scripts/build-version.mjs)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v5
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         with:
           go-version: '1.27.4'
       - name: Vet
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: go vet ./...
       - name: Test
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: go test -race ./...
-      # govulncheck analyzes the toolchain's standard library, so it scans a
-      # binary built by the same Go 1.27.4 that builds the artifacts below.
-      # Binary mode is used because govulncheck v1.10.0's source-mode parser
-      # predates go1.27 language features.
       - name: Vulnerability check
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
           CGO_ENABLED=0 go build -trimpath -o /tmp/maker ./cmd/maker
           govulncheck -mode=binary /tmp/maker
+
   build:
-    needs: verify
+    needs: metadata
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
-          # darwin builds use cgo for the Keychain adapter, so they need macOS runners.
-          - {runner: macos-latest, goos: darwin, goarch: arm64, cgo: '1'}
-          - {runner: macos-latest, goos: darwin, goarch: amd64, cgo: '1'}
-          - {runner: ubuntu-latest, goos: linux, goarch: amd64, cgo: '0'}
-          - {runner: ubuntu-latest, goos: linux, goarch: arm64, cgo: '0'}
-          - {runner: ubuntu-latest, goos: windows, goarch: amd64, cgo: '0'}
+          - {runner: macos-15, goos: darwin, goarch: arm64, cgo: '1', ext: ''}
+          - {runner: macos-15-intel, goos: darwin, goarch: amd64, cgo: '1', ext: ''}
+          - {runner: ubuntu-latest, goos: linux, goarch: amd64, cgo: '0', ext: ''}
+          - {runner: ubuntu-24.04-arm, goos: linux, goarch: arm64, cgo: '0', ext: ''}
+          - {runner: windows-latest, goos: windows, goarch: amd64, cgo: '0', ext: '.exe'}
     runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      BINARY: maker_${{ needs.metadata.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}
     steps:
       - uses: actions/checkout@v4
-      # Must match the compiler pinned in the verify job above.
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.4'
-      - name: Build
+      - name: Build and check version
         env:
           CGO_ENABLED: ${{ matrix.cgo }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          TAG: ${{ github.ref_name }}
         shell: bash
         run: |
-          ext=''
-          if [ "$GOOS" = windows ]; then ext='.exe'; fi
           mkdir -p dist
-          go build -trimpath -ldflags "-s -w -X github.com/SENTINELITE/elgato-makers-cli/internal/cli.Version=${TAG#v}" \
-            -o "dist/maker_${TAG#v}_${GOOS}_${GOARCH}${ext}" ./cmd/maker
+          go build -trimpath -ldflags "-s -w -X github.com/SENTINELITE/elgato-makers-cli/internal/cli.Version=$VERSION" \
+            -o "dist/$BINARY" ./cmd/maker
+          [[ "$( "./dist/$BINARY" --version | tr -d '\r' )" == "maker version $VERSION" ]]
       - uses: actions/upload-artifact@v4
         with:
-          name: maker-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
+          name: binary-${{ env.BINARY }}
+          path: dist/${{ env.BINARY }}
           if-no-files-found: error
+
+  package:
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: binary-*
+          merge-multiple: true
+      - name: Package npm tarball and checksums
+        run: |
+          node scripts/package-npm.mjs "$VERSION" dist npm-package
+          npm pack ./npm-package --ignore-scripts --pack-destination dist
+          cd dist
+          sha256sum maker_* sentinelite-elgato-makers-cli-*.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maker-dist-${{ env.VERSION }}
+          path: dist/
+          if-no-files-found: error
+
+  npm-smoke:
+    needs: [metadata, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel, ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: maker-dist-${{ env.VERSION }}
+          path: dist
+      - name: Install and run the packed CLI
+        shell: bash
+        run: |
+          npm install --prefix npm-smoke --ignore-scripts --offline --no-audit --no-fund \
+            "./dist/sentinelite-elgato-makers-cli-$VERSION.tgz"
+          cli=./npm-smoke/node_modules/.bin/maker
+          [[ "$( "$cli" --version | tr -d '\r' )" == "maker version $VERSION" ]]
+          "$cli" --help > /dev/null
+          if "$cli" unknown-command-for-smoke > /dev/null 2>&1; then
+            echo "Expected the CLI to return a nonzero exit code." >&2
+            exit 1
+          fi
+
   publish:
-    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [metadata, npm-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -78,21 +161,21 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: maker-dist-${{ needs.metadata.outputs.version }}
           path: dist
-          pattern: maker-*
-          merge-multiple: true
-      - name: Checksums
-        working-directory: dist
-        run: sha256sum maker_* > SHA256SUMS
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/maker_*
+          subject-path: |
+            dist/maker_*
+            dist/*.tgz
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          prerelease=''
-          case "$TAG" in *-*) prerelease='--prerelease' ;; esac
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes --verify-tag $prerelease
+          prerelease=()
+          case "$VERSION" in 0.*|*-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" \
+            --generate-notes --verify-tag "${prerelease[@]}"

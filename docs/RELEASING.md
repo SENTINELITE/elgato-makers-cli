@@ -1,7 +1,11 @@
 # Releasing
 
-Releases are cut from tags. Nothing here publishes automatically: the workflows
-in `.github/workflows/` run only after a push to a GitHub remote.
+Every push to `main` builds the five native targets and a tested npm tarball
+as GitHub Actions artifacts. The version comes from the CLI source default.
+Use **Actions → Build and release → Run workflow** to build an explicit
+SemVer for testing. Both build-only routes leave GitHub Releases and npm untouched.
+Tag a reviewed commit to publish its GitHub download. Publish the npm package
+from that same release tarball.
 
 ## Versioning
 
@@ -68,10 +72,39 @@ git tag -s v1.2.3 -m "v1.2.3"     # use -a if you do not sign tags
 git push origin v1.2.3
 ```
 
-The `Release` workflow then vets and tests the tagged commit, runs `govulncheck`,
-builds trimmed binaries for macOS, Linux and Windows, writes `SHA256SUMS`,
-attaches build provenance, and creates the GitHub release. Pre-release tags
-create a pre-release.
+The **Build and release** workflow vets and tests the tagged commit, runs
+`govulncheck`, builds the binaries and npm tarball, then installs the tarball
+offline on all five native targets. The version from the tag is embedded in
+each binary, its filename, and the npm manifest. The workflow attaches the
+tested files, SHA-256 checksums, and build provenance to the GitHub release.
+Pre-1.0.0 versions and tags with a pre-release suffix are marked pre-release
+on GitHub.
+
+## npm publishing
+
+The package is `@sentinelite/elgato-makers-cli` and installs the `maker`
+command. The tarball bundles all five native binaries and has no dependencies
+or install-time scripts.
+
+For the first publish, download the tarball and `SHA256SUMS` from the matching
+GitHub release, then run:
+
+```sh
+tag=v0.9.0
+gh release download "$tag" --repo SENTINELITE/elgato-makers-cli \
+  --pattern '*.tgz' --pattern SHA256SUMS
+shasum -a 256 -c --ignore-missing SHA256SUMS
+npm login
+npm publish "./sentinelite-elgato-makers-cli-${tag#v}.tgz" --access public --ignore-scripts
+```
+
+Then add GitHub Actions as the npm package's [trusted publisher](https://docs.npmjs.com/trusted-publishers/).
+Set the GitHub owner to `SENTINELITE`, repository to `elgato-makers-cli`, and
+workflow filename to `npm-publish.yml`. Allow direct publishing. For later
+versions, dispatch **Publish CLI to npm** from `main` with the existing release
+tag. The workflow verifies the release checksum, build attestation, package name, and version
+before publishing with OIDC. Plain versions go to npm's `latest` tag.
+SemVer pre-release suffixes go to `next`.
 
 ## Toolchain
 
