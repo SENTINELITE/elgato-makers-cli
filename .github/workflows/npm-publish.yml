@@ -56,4 +56,4 @@ jobs:
           DIST_TAG: ${{ steps.package.outputs.dist-tag }}
         run: |
           npm install --global npm@11.21.0 --ignore-scripts
-          npm publish "$PACKAGE" --access public --tag "$DIST_TAG" --ignore-scripts
+          npm publish "$GITHUB_WORKSPACE/$PACKAGE" --access public --tag "$DIST_TAG" --ignore-scripts
