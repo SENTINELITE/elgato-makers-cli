@@ -558,38 +558,30 @@ func (a *app) mcpStatus(ctx context.Context, origin string) (resultErr error) {
 			return e
 		}
 	}
-	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_connection_status","arguments":{}}}`)
-	var reply struct {
-		Error  json.RawMessage `json:"error"`
-		Result struct {
-			IsError    bool `json:"isError"`
-			Structured struct {
-				Data struct {
-					State string `json:"state"`
-					Org   string `json:"org_id"`
-					Demo  bool   `json:"demo"`
-				} `json:"data"`
-			} `json:"structuredContent"`
-		} `json:"result"`
+	result, e := mcpDeliveryTool(ctx, origin, auth.AccessToken, "get_account_status", map[string]any{})
+	if errors.Is(e, errMCPUnknownTool) {
+		result, e = mcpDeliveryTool(ctx, origin, auth.AccessToken, "get_connection_status", map[string]any{})
 	}
-	if e = mcpRequest(ctx, c, "POST", origin+"/mcp", "application/json", auth.AccessToken, body, &reply); e != nil {
-		return e
-	}
-	if len(reply.Error) > 0 && string(reply.Error) != "null" || reply.Result.IsError {
+	if e != nil {
 		return errors.New("MCP connection status failed; reconnect in the hosted service")
 	}
-	status := reply.Result.Structured.Data
-	switch status.State {
+	if connection, ok := result["connection"].(map[string]any); ok {
+		result = connection
+	}
+	state, _ := result["state"].(string)
+	org, _ := result["org_id"].(string)
+	demo, _ := result["demo"].(bool)
+	switch state {
 	case "connected", "disconnected", "reconnect_required":
 	default:
 		return errors.New("MCP server returned an unknown connection state")
 	}
 	// Whitelist status fields. Raw MCP tool text/errors can contain upstream private data.
-	result := map[string]any{"authenticated": true, "server": origin, "state": status.State, "demo": status.Demo}
-	if status.Org != "" {
-		result["org_id"] = status.Org
+	status := map[string]any{"authenticated": true, "server": origin, "state": state, "demo": demo}
+	if org != "" {
+		status["org_id"] = org
 	}
-	return a.mcpResult(result, fmt.Sprintf("MCP login: authenticated\nServer: %s\nMaker connection: %s", origin, status.State))
+	return a.mcpResult(status, fmt.Sprintf("MCP login: authenticated\nServer: %s\nMaker connection: %s", origin, state))
 }
 func (a *app) mcpLogout(ctx context.Context, origin string) error {
 	auth, e := a.loadMCP(origin)

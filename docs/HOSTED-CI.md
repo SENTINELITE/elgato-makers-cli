@@ -8,7 +8,7 @@ Hosted MCP OAuth and Maker login are separate. The CLI sends only its scoped hos
 maker mcp login --write
 maker mcp listing prepare --file listing.json --json
 maker mcp action request --workflow WORKFLOW_ID --action submit --upload-mode direct --json
-# Open approval_url and complete both owner confirmations.
+# Open approval_url and confirm as the signed-in owner.
 maker mcp action execute --workflow WORKFLOW_ID --operation OPERATION_ID --json
 ```
 
@@ -30,9 +30,9 @@ maker ci policy create --file /absolute/path/preflight-policy.json --open --wait
 maker ci policy list
 ```
 
-Create sends your bounded policy JSON to the owner REST API and prints a browser approval URL. The owner must complete both confirmations. `--wait` observes approval, applies the policy once and returns its ID; it never treats terminal input as browser approval. Without waiting, resume with `maker ci policy status --operation ID` and `maker ci policy apply --operation ID`. To revoke a policy, run `maker ci policy disable --policy ID --open --wait`, which also requires both confirmations.
+Create sends your bounded policy JSON to the owner REST API and prints a browser approval URL. The signed-in owner reviews and confirms the policy in the browser. `--wait` observes approval, applies the policy once and returns its ID; it never treats terminal input as browser approval. Without waiting, resume with `maker ci policy status --operation ID` and `maker ci policy apply --operation ID`. To revoke a policy, run `maker ci policy disable --policy ID --open --wait`, which also requires signed-in browser confirmation.
 
-The website alternative is https://makers.sentinelite.com/ci. It defaults to validation only, saves the exact request for review and applies CI metadata after both confirmations. The resulting ID appears on the CI page. Neither setup path submits a plugin. Existing MCP policy tools remain available for users who prefer them.
+The website alternative is https://makers.sentinelite.com/ci. It defaults to validation only, saves the exact request for review and applies CI metadata after owner confirmation. The resulting ID appears on the CI page. Neither setup path submits a plugin. Existing MCP policy tools remain available for users who prefer them.
 
 The JSON uses `repository` (owner/repo), `repository_id` (numeric GitHub ID as a string), `ref` (exact refs/heads/main), `workflow_ref` (owner/repo/.github/workflows/FILE.yml@refs/heads/main), optional `environment`, and existing `product_id`, `variant_id`, `uuid`. Choose `auto_publish` explicitly, `preflight_only: true` for validation, `expiration_days` (1–365), and optional `default_release_notes`. A release-capable policy requires explicit owner review; do not silently broaden a preflight policy.
 
@@ -67,7 +67,7 @@ Add `--notes RELEASE_NOTES.md` to use a reviewed file from the checked-out commi
 ## Configure the example
 
 1. Start with the [example workflow](../.github/workflows/maker-hosted-release.example.yml). Use trusted, pinned action revisions and a trusted CLI binary. Replace the build placeholders with your project's real pipeline, including its production signing steps. Choose runners that support those steps. Protect `main`, restrict each GitHub environment to its intended branch and review changes to the release workflow.
-2. In an MCP client with `maker:write` consent, call `prepare_ci_deployment`. Bind the policy to the exact repository name and numeric ID, branch ref, workflow ref, product, variant and package UUID. Bind the signed GitHub `environment` claim to the environment name in the workflow. Approve a policy with `preflight_only: true` for validation and a separate policy for production. For each policy, call `request_ci_deployment_enable_approval`, complete both browser confirmations, then call `execute_workflow`.
+2. In an MCP client with `maker:write` consent, call `prepare_ci_deployment`. Bind the policy to the exact repository name and numeric ID, branch ref, workflow ref, product, variant and package UUID. Bind the signed GitHub `environment` claim to the environment name in the workflow. Approve a policy with `preflight_only: true` for validation and a separate policy for production. For each policy, call `request_approval` with `action: "enable"`, then confirm on the signed-in browser page.
 3. Set repository variables `MAKER_CI_REPOSITORY` to `OWNER/REPO` and `MAKER_CI_PREFLIGHT_REF` to the approved full branch ref, such as `refs/heads/release-validation`. Keep the workflow on the repository's default branch for manual dispatch and use the reviewed copy on the validation branch. Set `MAKER_CI_PREFLIGHT_POLICY` for the `maker-preflight` environment and `MAKER_CI_POLICY` for `maker-production`. Policy IDs are identifiers. GitHub OIDC supplies the credential for each run.
 4. Set `MAKER_CI_PREFLIGHT_ENABLED=true` at the repository level when ready for validation. Dispatch the workflow on the exact preflight ref. The example's production job requires the exact `refs/heads/main` ref, a `push` or `workflow_dispatch` event, and the separate `MAKER_CI_RELEASE_ENABLED=true` repository variable. Set the release variable only when the production build, signing, environment and standing policy have been reviewed.
 

@@ -23,7 +23,7 @@ import (
 	"golang.org/x/term"
 )
 
-var Version = "0.9.0"
+var Version = "0.9.1"
 
 type Options struct {
 	In         io.Reader

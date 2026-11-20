@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1
+
+- Match the hosted MCP's consolidated account, workflow and approval tools.
+- Track server-started operations after signed-in browser confirmation and retain direct file delivery.
+
 ## Unreleased: standalone hosted CI setup
 
 - Add `maker cloud login/status/logout` aliases over the existing hosted OAuth credentials.

@@ -60,16 +60,18 @@ func TestMCPDeliveryListingUploadsAndPrivateMapping(t *testing.T) {
 		if r.URL.Path == "/mcp" {
 			var call struct {
 				Params struct {
-					Name string            `json:"name"`
-					Args map[string]string `json:"arguments"`
+					Name string         `json:"name"`
+					Args map[string]any `json:"arguments"`
 				} `json:"params"`
 			}
 			json.NewDecoder(r.Body).Decode(&call)
 			if call.Params.Name != "prepare_listing" {
 				t.Error("wrong tool")
 			}
-			var input map[string]any
-			json.Unmarshal([]byte(call.Params.Args["config_json"]), &input)
+			input, ok := call.Params.Args["config"].(map[string]any)
+			if !ok || call.Params.Args["config_json"] != nil {
+				t.Error("config must be a JSON object, not config_json")
+			}
 			if input["package"] != "artifact-1" || input["description"] != listingTestDescription || input["release_notes"] == nil || input["org_id"] != nil || input["description_file"] != nil {
 				t.Error("local config not converted safely")
 			}
@@ -439,16 +441,18 @@ func TestMCPDeliveryListingReusesThumbnailArtifact(t *testing.T) {
 		if r.URL.Path == "/mcp" {
 			var call struct {
 				Params struct {
-					Name string            `json:"name"`
-					Args map[string]string `json:"arguments"`
+					Name string         `json:"name"`
+					Args map[string]any `json:"arguments"`
 				} `json:"params"`
 			}
 			json.NewDecoder(r.Body).Decode(&call)
 			if call.Params.Name != "prepare_listing" {
 				t.Error("wrong tool")
 			}
-			var input map[string]any
-			json.Unmarshal([]byte(call.Params.Args["config_json"]), &input)
+			input, ok := call.Params.Args["config"].(map[string]any)
+			if !ok || call.Params.Args["config_json"] != nil {
+				t.Error("config must be a JSON object, not config_json")
+			}
 			if input["package"] != "artifact-1" || input["description"] != listingTestDescription || input["release_notes"] == nil || input["org_id"] != nil || input["description_file"] != nil {
 				t.Error("local config not converted safely")
 			}
@@ -670,7 +674,7 @@ func TestMCPLegacyReadGrantRefreshScopeCompatibility(t *testing.T) {
 					if scope != "maker:read" {
 						t.Error("broadened refresh reached status")
 					}
-					fmt.Fprint(w, `{"result":{"structuredContent":{"data":{"state":"connected","org_id":"synthetic-org"}}}}`)
+					fmt.Fprint(w, `{"result":{"structuredContent":{"data":{"connection":{"state":"connected","org_id":"synthetic-org"}}}}}`)
 				default:
 					http.NotFound(w, r)
 				}
@@ -793,8 +797,8 @@ type mcpApprovalCall struct {
 	Args map[string]any
 }
 
-// approvalServer records tool calls. Older servers report named tools unknown.
-func approvalServer(t *testing.T, kind string, named bool, calls *[]mcpApprovalCall) *httptest.Server {
+// approvalServer records tool calls for the unified request_approval contract.
+func approvalServer(t *testing.T, kind string, calls *[]mcpApprovalCall) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var raw struct {
 			Params struct {
@@ -807,56 +811,52 @@ func approvalServer(t *testing.T, kind string, named bool, calls *[]mcpApprovalC
 			return
 		}
 		*calls = append(*calls, mcpApprovalCall{raw.Params.Name, raw.Params.Args})
-		switch name := raw.Params.Name; {
-		case name == "show_workflow":
+		switch raw.Params.Name {
+		case "get_workflow":
 			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"data":{"workflow_id":"workflow","kind":%q}}}}`, kind)
-		case strings.HasPrefix(name, "request_") && name != "request_workflow_execution" && !named:
-			fmt.Fprintf(w, `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"unknown tool \"%s\""}}`, name)
 		default:
 			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"data":{"operation_id":"operation","state":"pending_approval"}}}}`)
 		}
 	}))
 }
-func TestMCPApprovalUsesNamedTools(t *testing.T) {
+func TestMCPApprovalUsesRequestApproval(t *testing.T) {
 	for _, tc := range []struct {
-		action, kind, tool string
-		upload             bool
+		action, kind string
+		upload       bool
+		lookup       bool
 	}{
-		{"stage", "", "request_upload_staging_approval", true}, {"submit", "", "request_review_submission_approval", true},
-		{"delete", "", "request_product_deletion_approval", false}, {"deactivate", "", "request_discount_deactivation_approval", false},
-		{"discard", "", "request_listing_discard_approval", false}, {"create", "draft", "request_draft_creation_approval", true},
-		{"create", "discount", "request_discount_creation_approval", false}, {"retire", "draft", "request_draft_retirement_approval", false},
-		{"retire", "listing", "request_listing_retirement_approval", false},
+		{"stage", "", true, false}, {"submit", "", true, false},
+		{"delete", "", false, false}, {"deactivate", "", false, false},
+		{"discard", "", false, false}, {"create", "draft", true, true},
+		{"create", "discount", false, true}, {"retire", "draft", false, false},
+		{"retire", "listing", false, false},
 	} {
 		var calls []mcpApprovalCall
-		srv := approvalServer(t, tc.kind, true, &calls)
+		srv := approvalServer(t, tc.kind, &calls)
 		r, e := mcpRequestApproval(context.Background(), srv.URL, "synthetic-write", "workflow", tc.action, "direct")
 		srv.Close()
 		if e != nil || r["operation_id"] != "operation" {
-			t.Fatal(tc.action, e)
+			t.Fatal(tc.action, tc.kind, e)
+		}
+		want := 1
+		if tc.lookup {
+			want = 2
+		}
+		if len(calls) != want {
+			t.Fatalf("%s/%s unexpected calls %+v", tc.kind, tc.action, calls)
 		}
 		last := calls[len(calls)-1]
-		if last.Name != tc.tool || last.Args["workflow_id"] != "workflow" || last.Args["action"] != nil || (last.Args["upload_mode"] == "direct") != tc.upload {
+		if last.Name != "request_approval" || last.Args["workflow_id"] != "workflow" || last.Args["action"] != tc.action || (last.Args["upload_mode"] == "direct") != tc.upload {
 			t.Fatalf("%s/%s called %+v", tc.kind, tc.action, last)
 		}
-		if want := map[bool]int{false: 1, true: 2}[tc.kind != ""]; len(calls) != want || tc.kind != "" && calls[0].Name != "show_workflow" {
-			t.Fatalf("%s/%s unexpected calls %+v", tc.kind, tc.action, calls)
+		if tc.lookup && calls[0].Name != "get_workflow" {
+			t.Fatalf("%s/%s kind lookup missing: %+v", tc.kind, tc.action, calls)
 		}
 	}
 }
-func TestMCPApprovalFallsBackOnlyForUnknownTools(t *testing.T) {
+func TestMCPApprovalHasNoLegacyFallback(t *testing.T) {
 	var calls []mcpApprovalCall
-	srv := approvalServer(t, "discount", false, &calls)
-	defer srv.Close()
-	for _, action := range []string{"submit", "create"} {
-		calls = nil
-		r, e := mcpRequestApproval(context.Background(), srv.URL, "synthetic-write", "workflow", action, "direct")
-		last := calls[len(calls)-1]
-		if e != nil || r["operation_id"] != "operation" || last.Name != "request_workflow_execution" || last.Args["action"] != action || last.Args["upload_mode"] != "direct" || !strings.HasPrefix(calls[len(calls)-2].Name, "request_") {
-			t.Fatalf("legacy fallback failed for %s: %+v %v", action, calls, e)
-		}
-	}
-	rejected := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var raw struct {
 			Params struct {
 				Name string `json:"name"`
@@ -864,18 +864,227 @@ func TestMCPApprovalFallsBackOnlyForUnknownTools(t *testing.T) {
 		}
 		json.NewDecoder(r.Body).Decode(&raw)
 		calls = append(calls, mcpApprovalCall{Name: raw.Params.Name})
-		fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"isError":true,"structuredContent":{"error":{"code":"INVALID_WORKFLOW_ACTION"}}}}`)
+		fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"unknown tool \"request_approval\""}}`)
 	}))
-	defer rejected.Close()
-	calls = nil
-	if _, e := mcpRequestApproval(context.Background(), rejected.URL, "synthetic-write", "workflow", "delete", "direct"); e == nil || errors.Is(e, errMCPUnknownTool) || len(calls) != 1 {
-		t.Fatalf("rejection retried through legacy tool: %+v", calls)
+	defer srv.Close()
+	if _, e := mcpRequestApproval(context.Background(), srv.URL, "synthetic-write", "workflow", "submit", "direct"); e == nil || !errors.Is(e, errMCPUnknownTool) {
+		t.Fatalf("unknown tool not surfaced: %v", e)
 	}
-	calls = nil
-	other := approvalServer(t, "listing", true, &calls)
-	defer other.Close()
-	if _, e := mcpRequestApproval(context.Background(), other.URL, "synthetic-write", "workflow", "create", "direct"); e == nil || len(calls) != 1 || calls[0].Name != "show_workflow" {
-		t.Fatalf("unsupported kind reached an approval tool: %+v", calls)
+	if len(calls) != 1 || calls[0].Name != "request_approval" {
+		t.Fatalf("removed-tool fallback used: %+v", calls)
+	}
+}
+
+// mcpApprovalFixture serves the unified approval tools for command tests. It
+// records tool names and answers request_approval, confirm_operation,
+// execute_workflow and operation reads from get_workflow.
+type mcpApprovalFixture struct {
+	calls    []string
+	reads    int
+	acks     int
+	puts     int
+	executed bool
+	artifact mcpLocalArtifact
+	srv      *httptest.Server
+}
+
+func newMCPApprovalFixture(t *testing.T, autoStart bool, direct bool, artifact mcpLocalArtifact) *mcpApprovalFixture {
+	f := &mcpApprovalFixture{artifact: artifact}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/mcp":
+			var raw struct {
+				Params struct {
+					Name string         `json:"name"`
+					Args map[string]any `json:"arguments"`
+				} `json:"params"`
+			}
+			if json.NewDecoder(r.Body).Decode(&raw) != nil {
+				t.Error("bad MCP request")
+				return
+			}
+			f.calls = append(f.calls, raw.Params.Name)
+			switch raw.Params.Name {
+			case "request_approval":
+				if raw.Params.Args["action"] != "submit" || raw.Params.Args["workflow_id"] != "workflow" {
+					t.Errorf("bad approval args %+v", raw.Params.Args)
+				}
+				fmt.Fprintf(w, `{"result":{"structuredContent":{"data":{"operation_id":"operation","state":"pending_approval","action":"submit","workflow_id":"workflow","approval_url":%q,"confirmation_token":"token-one","expires_at":"2030-01-01T00:00:00Z","auto_start":%t,"summary":"Owner approval requested to submit the listing plan."}}}}`, f.srv.URL+"/workflows/approve/operation", autoStart)
+			case "confirm_operation":
+				if raw.Params.Args["operation_id"] != "operation" || raw.Params.Args["confirmation_token"] != "token-one" {
+					t.Errorf("bad confirmation args %+v", raw.Params.Args)
+				}
+				state := "approved"
+				if autoStart {
+					state = "running"
+				}
+				mode := "server"
+				if direct {
+					mode = "direct"
+				}
+				fmt.Fprintf(w, `{"result":{"structuredContent":{"data":{"operation_id":"operation","state":%q,"upload_mode":%q,"auto_start":%t}}}}`, state, mode, autoStart)
+			case "execute_workflow":
+				f.executed = true
+				fmt.Fprint(w, `{"result":{"structuredContent":{"data":{"operation_id":"operation","state":"running","upload_mode":"direct"}}}}`)
+			case "get_workflow":
+				f.reads++
+				state := "running"
+				if direct && f.reads == 1 {
+					state = "approved"
+				} else if f.acks > 0 || !direct && f.reads > 1 {
+					state = "succeeded"
+				}
+				mode := "server"
+				if direct {
+					mode = "direct"
+				}
+				fmt.Fprintf(w, `{"result":{"structuredContent":{"data":{"operation_id":"operation","state":%q,"upload_mode":%q}}}}`, state, mode)
+			default:
+				t.Errorf("unexpected tool %s", raw.Params.Name)
+			}
+		case strings.HasPrefix(r.URL.Path, "/v1/operations/operation/uploads/") && strings.HasSuffix(r.URL.Path, "/next"):
+			if direct {
+				json.NewEncoder(w).Encode(mcpUploadLease{ID: "lease-one", Artifact: f.artifact.ID, SHA256: f.artifact.SHA256, Size: f.artifact.Size, URL: f.srv.URL + "/storage", Expires: time.Now().Add(time.Minute)})
+			} else {
+				t.Error("server-mode operation polled upload leases")
+				w.WriteHeader(500)
+			}
+		case strings.HasSuffix(r.URL.Path, "/complete"):
+			f.acks++
+			w.WriteHeader(204)
+		case r.URL.Path == "/storage":
+			f.puts++
+			io.Copy(io.Discard, r.Body)
+		default:
+			t.Errorf("unexpected route %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func TestMCPActionRequestConfirmsServerOperation(t *testing.T) {
+	f := newMCPApprovalFixture(t, true, false, mcpLocalArtifact{})
+	a := mcpTestApp(t)
+	if e := a.saveMCP(mcpAuth{Server: f.srv.URL, Scope: "maker:read maker:write", ClientID: "client", AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Hour)}); e != nil {
+		t.Fatal(e)
+	}
+	out, stderr, e := command(t, Options{In: strings.NewReader("y\n"), IsTerminal: func() bool { return true }}, "--config", a.configPath, "mcp", "action", "request", "--workflow", "workflow", "--action", "submit", "--upload-mode", "server", "--server", f.srv.URL)
+	if e != nil {
+		t.Fatalf("confirm flow failed: %v %s", e, stderr)
+	}
+	if !strings.Contains(stderr, "Confirm this operation now?") || !strings.Contains(out, "succeeded") {
+		t.Fatalf("confirm flow output wrong: out=%q err=%q", out, stderr)
+	}
+	want := []string{"request_approval", "confirm_operation", "get_workflow", "get_workflow"}
+	if fmt.Sprint(f.calls) != fmt.Sprint(want) {
+		t.Fatalf("unexpected call sequence %v", f.calls)
+	}
+	if f.executed || f.puts != 0 || f.acks != 0 {
+		t.Fatal("server-mode confirmation reached execute or uploads")
+	}
+}
+
+func TestMCPActionRequestConfirmsDirectOperation(t *testing.T) {
+	_, _, pkg, _ := fixture(t)
+	file, e := mcpFileIdentity(pkg)
+	if e != nil {
+		t.Fatal(e)
+	}
+	file.ID = "artifact-one"
+	f := newMCPApprovalFixture(t, false, true, file)
+	a := mcpTestApp(t)
+	if e = a.saveMCP(mcpAuth{Server: f.srv.URL, Scope: "maker:read maker:write", ClientID: "client", AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Hour)}); e != nil {
+		t.Fatal(e)
+	}
+	if e = a.saveDelivery(mcpDeliveryMap{Server: f.srv.URL, Workflow: "workflow", Files: map[string]mcpLocalArtifact{file.ID: file}}); e != nil {
+		t.Fatal(e)
+	}
+	out, stderr, e := command(t, Options{In: strings.NewReader("y\n"), IsTerminal: func() bool { return true }}, "--config", a.configPath, "mcp", "action", "request", "--workflow", "workflow", "--action", "submit", "--upload-mode", "direct", "--server", f.srv.URL)
+	if e != nil {
+		t.Fatalf("direct confirm flow failed: %v %s", e, stderr)
+	}
+	if !strings.Contains(out, "succeeded") {
+		t.Fatalf("direct confirm flow output wrong: %q", out)
+	}
+	want := []string{"request_approval", "confirm_operation", "get_workflow", "execute_workflow", "get_workflow", "get_workflow"}
+	if fmt.Sprint(f.calls) != fmt.Sprint(want) {
+		t.Fatalf("unexpected call sequence %v", f.calls)
+	}
+	if !f.executed || f.puts != 1 || f.acks != 1 {
+		t.Fatalf("direct delivery incomplete: executed=%v puts=%d acks=%d", f.executed, f.puts, f.acks)
+	}
+}
+
+func TestMCPActionRequestLeavesPendingWithoutPrompt(t *testing.T) {
+	f := newMCPApprovalFixture(t, true, false, mcpLocalArtifact{})
+	a := mcpTestApp(t)
+	if e := a.saveMCP(mcpAuth{Server: f.srv.URL, Scope: "maker:read maker:write", ClientID: "client", AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Hour)}); e != nil {
+		t.Fatal(e)
+	}
+	out, stderr, e := command(t, Options{}, "--config", a.configPath, "mcp", "action", "request", "--workflow", "workflow", "--action", "submit", "--upload-mode", "server", "--server", f.srv.URL)
+	if e != nil {
+		t.Fatalf("pending flow failed: %v %s", e, stderr)
+	}
+	if !strings.Contains(out, "/workflows/approve/operation") || strings.Contains(out+stderr, "token-one") {
+		t.Fatalf("pending output wrong: out=%q err=%q", out, stderr)
+	}
+	if len(f.calls) != 1 || f.calls[0] != "request_approval" {
+		t.Fatalf("non-interactive run confirmed: %v", f.calls)
+	}
+}
+
+func TestMCPExecuteWorkflowSkipsStartedReport(t *testing.T) {
+	// An in-flight report returns before any hosted call.
+	if e := mcpExecuteWorkflow(context.Background(), "http://127.0.0.1:1", "synthetic", "operation", map[string]any{"state": "running"}); e != nil {
+		t.Fatal(e)
+	}
+}
+
+func TestMCPActionExecuteToleratesInFlightOperation(t *testing.T) {
+	executed, reads := false, 0
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" {
+			t.Errorf("unexpected route %s", r.URL.Path)
+			return
+		}
+		var raw struct {
+			Params struct {
+				Name string `json:"name"`
+			} `json:"params"`
+		}
+		json.NewDecoder(r.Body).Decode(&raw)
+		switch raw.Params.Name {
+		case "get_workflow":
+			reads++
+			state := "approved"
+			if executed {
+				state = "running"
+				if reads >= 4 {
+					state = "succeeded"
+				}
+			}
+			fmt.Fprintf(w, `{"result":{"structuredContent":{"data":{"operation_id":"operation","state":%q,"upload_mode":"server"}}}}`, state)
+		case "execute_workflow":
+			executed = true
+			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"operation already started"}}`)
+		default:
+			t.Errorf("unexpected tool %s", raw.Params.Name)
+		}
+	}))
+	defer srv.Close()
+	a := mcpTestApp(t)
+	if e := a.saveMCP(mcpAuth{Server: srv.URL, Scope: "maker:read maker:write", ClientID: "client", AccessToken: "synthetic", ExpiresAt: time.Now().Add(time.Hour)}); e != nil {
+		t.Fatal(e)
+	}
+	out, stderr, e := command(t, Options{}, "--config", a.configPath, "mcp", "action", "execute", "--workflow", "workflow", "--operation", "operation", "--server", srv.URL)
+	if e != nil {
+		t.Fatalf("in-flight execute failed: %v %s", e, stderr)
+	}
+	if !executed || !strings.Contains(out, "succeeded") {
+		t.Fatalf("concurrent start not tolerated: executed=%v out=%q", executed, out)
 	}
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -203,42 +204,39 @@ func mcpDeliveryTool(ctx context.Context, origin, token, name string, args any) 
 	return data, nil
 }
 
-// mcpApprovalTools names the server's per-action approval tools. create and
-// retire depend on the saved plan kind, which show_workflow reports.
-var mcpApprovalTools = map[string]string{"stage": "request_upload_staging_approval", "submit": "request_review_submission_approval", "delete": "request_product_deletion_approval", "deactivate": "request_discount_deactivation_approval", "discard": "request_listing_discard_approval", "draft/create": "request_draft_creation_approval", "discount/create": "request_discount_creation_approval", "draft/retire": "request_draft_retirement_approval", "listing/retire": "request_listing_retirement_approval"}
-
-// mcpRequestApproval uses the named approval tool and falls back to the legacy
-// request_workflow_execution selector only when the server reports the named
-// tool (or show_workflow) as unknown, so older servers keep working.
+// mcpRequestApproval asks the hosted service for one pending owner approval of
+// the explicit action on a saved plan; it executes nothing. upload_mode applies
+// only to stage, submit and draft create, so create first reads the saved plan
+// kind that get_workflow reports.
 func mcpRequestApproval(ctx context.Context, origin, token, workflowID, action, mode string) (map[string]any, error) {
-	legacy := func() (map[string]any, error) {
-		return mcpDeliveryTool(ctx, origin, token, "request_workflow_execution", map[string]any{"workflow_id": workflowID, "action": action, "upload_mode": mode})
-	}
-	key := action
-	if action == "create" || action == "retire" {
-		plan, e := mcpDeliveryTool(ctx, origin, token, "show_workflow", map[string]any{"workflow_id": workflowID})
-		if errors.Is(e, errMCPUnknownTool) {
-			return legacy()
-		}
+	args := map[string]any{"workflow_id": workflowID, "action": action}
+	switch action {
+	case "stage", "submit":
+		args["upload_mode"] = mode
+	case "create":
+		kind, e := mcpWorkflowKind(ctx, origin, token, workflowID)
 		if e != nil {
 			return nil, e
 		}
-		kind, _ := plan["kind"].(string)
-		key = kind + "/" + action
+		if kind == "draft" {
+			args["upload_mode"] = mode
+		}
 	}
-	name, ok := mcpApprovalTools[key]
-	if !ok {
-		return nil, errors.New("this workflow does not support the requested action")
+	return mcpDeliveryTool(ctx, origin, token, "request_approval", args)
+}
+
+// mcpWorkflowKind reads the saved plan kind reported by get_workflow.
+func mcpWorkflowKind(ctx context.Context, origin, token, workflowID string) (string, error) {
+	plan, e := mcpDeliveryTool(ctx, origin, token, "get_workflow", map[string]any{"workflow_id": workflowID})
+	if e != nil {
+		return "", e
 	}
-	args := map[string]any{"workflow_id": workflowID}
-	if action == "stage" || action == "submit" || key == "draft/create" {
-		args["upload_mode"] = mode
+	kind, _ := plan["kind"].(string)
+	switch kind {
+	case "listing", "release", "draft", "deletion", "discount", "discount_deactivation", "ci_deployment":
+		return kind, nil
 	}
-	r, e := mcpDeliveryTool(ctx, origin, token, name, args)
-	if errors.Is(e, errMCPUnknownTool) {
-		return legacy()
-	}
-	return r, e
+	return "", errors.New("invalid hosted workflow response")
 }
 func mcpUploadFile(ctx context.Context, origin, token, path, kind string) (mcpLocalArtifact, error) {
 	identity, e := mcpFileIdentity(path)
@@ -491,12 +489,13 @@ func mcpPollDeliveryAuthorized(ctx context.Context, origin, token, operation str
 		if ci {
 			e = mcpRequest(ctx, mcpHTTPClient(), "GET", origin+"/v1/ci/operations/"+operation, "", token, nil, &state)
 		} else {
-			state, e = mcpDeliveryTool(ctx, origin, token, "get_workflow_operation", map[string]any{"operation_id": operation})
+			state, e = mcpDeliveryTool(ctx, origin, token, "get_workflow", map[string]any{"operation_id": operation})
 		}
 		if e != nil {
 			return nil, e
 		}
 		value, _ := state["state"].(string)
+		uploadMode, _ := state["upload_mode"].(string)
 		safe := map[string]any{"operation_id": operation, "state": value}
 		if code, ok := state["error_code"].(string); ok {
 			safe["error_code"] = code
@@ -516,6 +515,18 @@ func mcpPollDeliveryAuthorized(ctx context.Context, origin, token, operation str
 				return safe, e
 			}
 		}
+		// Upload leases exist only for direct delivery; server-mode operations
+		// report no pending uploads and the lease route rejects them.
+		if !ci && uploadMode == "server" {
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return safe, errors.New("operation wait cancelled or timed out; inspect saved status")
+			case <-timer.C:
+			}
+			continue
+		}
 		lease, e := mcpNextLease(ctx, origin, token, operation)
 		if e != nil {
 			// The operation can finish after the status read but before this poll.
@@ -525,7 +536,7 @@ func mcpPollDeliveryAuthorized(ctx context.Context, origin, token, operation str
 			if ci {
 				statusErr = mcpRequest(ctx, mcpHTTPClient(), "GET", origin+"/v1/ci/operations/"+operation, "", token, nil, &final)
 			} else {
-				final, statusErr = mcpDeliveryTool(ctx, origin, token, "get_workflow_operation", map[string]any{"operation_id": operation})
+				final, statusErr = mcpDeliveryTool(ctx, origin, token, "get_workflow", map[string]any{"operation_id": operation})
 			}
 			if statusErr == nil && (final["state"] == "succeeded" || final["state"] == "completed") {
 				return map[string]any{"operation_id": operation, "state": final["state"]}, nil
@@ -657,8 +668,7 @@ func (a *app) mcpPrepareLocalListing(ctx context.Context, origin, token, path st
 	if e = verifyDeliveryFiles(files); e != nil {
 		return nil, e
 	}
-	raw, _ := json.Marshal(input)
-	result, e := mcpDeliveryTool(ctx, origin, token, "prepare_listing", map[string]any{"config_json": string(raw)})
+	result, e := mcpDeliveryTool(ctx, origin, token, "prepare_listing", map[string]any{"config": input})
 	if e != nil {
 		return nil, e
 	}
@@ -738,6 +748,7 @@ func (a *app) addMCPDeliveryCommands(root *cobra.Command) {
 	listingCmd.AddCommand(prepare)
 	action := &cobra.Command{Use: "action", Short: "Request approval and execute hosted workflow actions"}
 	var workflowID, requestedAction, mode, actionServer string
+	var noPrompt bool
 	request := &cobra.Command{Use: "request", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		if !deliveryID.MatchString(workflowID) || !oneDeliveryAction(requestedAction) || (mode != "direct" && mode != "server") {
 			return errors.New("invalid workflow, action or upload mode")
@@ -759,12 +770,13 @@ func (a *app) addMCPDeliveryCommands(root *cobra.Command) {
 		if e != nil {
 			return e
 		}
-		return a.mcpResult(r, "Open the approval URL in this response and complete both owner confirmations: "+safeApprovalURL(r, origin))
+		return a.mcpApprovalFlow(cmd.Context(), origin, token, workflowID, r, noPrompt)
 	}}
 	request.Flags().StringVar(&workflowID, "workflow", "", "Saved workflow identifier")
 	request.Flags().StringVar(&requestedAction, "action", "", "Explicit workflow action")
 	request.Flags().StringVar(&mode, "upload-mode", "direct", "direct or server")
 	request.Flags().StringVar(&actionServer, "server", defaultMCPServer, "Hosted MCP origin")
+	request.Flags().BoolVar(&noPrompt, "no-prompt", false, "Leave the approval pending at its URL instead of asking to confirm")
 	request.MarkFlagRequired("workflow")
 	request.MarkFlagRequired("action")
 	var executeWorkflow, operation, executeServer string
@@ -785,27 +797,7 @@ func (a *app) addMCPDeliveryCommands(root *cobra.Command) {
 		if e != nil {
 			return e
 		}
-		m, e := a.loadDelivery(origin, executeWorkflow)
-		if e != nil {
-			return e
-		}
-		if e = verifyDeliveryFiles(m.Files); e != nil {
-			return e
-		}
-		if _, e = mcpDeliveryTool(cmd.Context(), origin, token, "execute_workflow", map[string]any{"operation_id": operation}); e != nil {
-			return e
-		}
-		saved, e := a.loadMCP(origin)
-		if e != nil {
-			return e
-		}
-		r, e := mcpPollDeliveryAuthorized(cmd.Context(), origin, token, operation, m.Files, false, func(id string) error { return a.guardDeliveryAttempt(origin, operation, id) }, a.liveDeliveryAuth(origin, saved.ClientID))
-		if r != nil {
-			if oe := a.mcpResult(r, "Operation state: "+fmt.Sprint(r["state"])); oe != nil {
-				return oe
-			}
-		}
-		return e
+		return a.executeApprovedOperation(cmd.Context(), origin, token, executeWorkflow, operation)
 	}}
 	execute.Flags().StringVar(&executeWorkflow, "workflow", "", "Workflow prepared on this computer")
 	execute.Flags().StringVar(&operation, "operation", "", "Owner-approved operation identifier")
@@ -829,4 +821,113 @@ func safeApprovalURL(r map[string]any, origin string) string {
 		return "See the hosted account page."
 	}
 	return raw
+}
+
+// mcpApprovalFlow presents the pending approval and, on a terminal, asks once
+// whether to confirm it now. The confirmation token stays in memory and is
+// never printed. Confirmation auto-starts server-mode runs; direct mode then
+// continues through the file-lease execute path.
+func (a *app) mcpApprovalFlow(ctx context.Context, origin, token, workflowID string, r map[string]any, noPrompt bool) error {
+	operationID, _ := r["operation_id"].(string)
+	confirmToken, _ := r["confirmation_token"].(string)
+	autoStart, _ := r["auto_start"].(bool)
+	summary, _ := r["summary"].(string)
+	if !deliveryID.MatchString(operationID) {
+		return errors.New("invalid hosted workflow response")
+	}
+	if summary == "" {
+		summary = "Owner approval requested for this operation."
+	}
+	next := "After confirmation run maker mcp action execute --workflow " + workflowID + " --operation " + operationID + " to upload the mapped local files and start."
+	if autoStart {
+		next = "Confirmation starts the run; track it with maker mcp action execute --workflow " + workflowID + " --operation " + operationID + "."
+	}
+	pending := summary + ". Open " + safeApprovalURL(r, origin) + " to confirm; the approval expires at " + fmt.Sprint(r["expires_at"]) + ". " + next
+	if confirmToken == "" || noPrompt || !a.o.IsTerminal() {
+		return a.mcpResult(r, pending)
+	}
+	fmt.Fprint(a.o.Err, summary+". Confirm this operation now? [y/N] ")
+	answer, e := bufio.NewReader(a.o.In).ReadString('\n')
+	if e != nil || (strings.ToLower(strings.TrimSpace(answer)) != "y" && strings.ToLower(strings.TrimSpace(answer)) != "yes") {
+		return a.mcpResult(r, pending)
+	}
+	if _, e = mcpDeliveryTool(ctx, origin, token, "confirm_operation", map[string]any{"operation_id": operationID, "confirmation_token": confirmToken}); e != nil {
+		return e
+	}
+	if autoStart {
+		return a.finishDeliveryPoll(ctx, origin, token, operationID, nil)
+	}
+	return a.executeApprovedOperation(ctx, origin, token, workflowID, operationID)
+}
+
+// executeApprovedOperation starts an approved operation and polls it to a
+// terminal state. Direct upload mode requires the private local mapping saved
+// by listing prepare on this computer; server mode needs no local files.
+func (a *app) executeApprovedOperation(ctx context.Context, origin, token, workflowID, operationID string) error {
+	m, mapErr := a.loadDelivery(origin, workflowID)
+	if mapErr == nil {
+		if e := verifyDeliveryFiles(m.Files); e != nil {
+			return e
+		}
+	}
+	report, e := mcpDeliveryTool(ctx, origin, token, "get_workflow", map[string]any{"operation_id": operationID})
+	if e != nil {
+		return e
+	}
+	var files map[string]mcpLocalArtifact
+	if report["upload_mode"] == "direct" {
+		if mapErr != nil {
+			return mapErr
+		}
+		files = m.Files
+	}
+	if e = mcpExecuteWorkflow(ctx, origin, token, operationID, report); e != nil {
+		return e
+	}
+	return a.finishDeliveryPoll(ctx, origin, token, operationID, files)
+}
+
+// mcpOperationInFlight reports states where the run already started or ended;
+// confirmation can auto-start it before execute_workflow is called.
+func mcpOperationInFlight(report map[string]any) bool {
+	switch report["state"] {
+	case "running", "queued", "upload_pending", "uploading", "succeeded", "completed":
+		return true
+	}
+	return false
+}
+
+// mcpExecuteWorkflow starts an approved operation. An operation that
+// confirmation already auto-started is in flight, so execute_workflow is only
+// called while the report still shows an unstarted state; a rejection is
+// tolerated when a fresh read shows the run already started or finished.
+func mcpExecuteWorkflow(ctx context.Context, origin, token, operationID string, report map[string]any) error {
+	if mcpOperationInFlight(report) {
+		return nil
+	}
+	_, e := mcpDeliveryTool(ctx, origin, token, "execute_workflow", map[string]any{"operation_id": operationID})
+	if e == nil {
+		return nil
+	}
+	fresh, serr := mcpDeliveryTool(ctx, origin, token, "get_workflow", map[string]any{"operation_id": operationID})
+	if serr != nil || !mcpOperationInFlight(fresh) {
+		return e
+	}
+	return nil
+}
+
+// finishDeliveryPoll refreshes the saved grant while polling and prints the
+// terminal operation state before returning the poll outcome.
+func (a *app) finishDeliveryPoll(ctx context.Context, origin, token, operation string, files map[string]mcpLocalArtifact) error {
+	saved, e := a.loadMCP(origin)
+	if e != nil {
+		return e
+	}
+	r, e := mcpPollDeliveryAuthorized(ctx, origin, token, operation, files, false, func(id string) error { return a.guardDeliveryAttempt(origin, operation, id) }, a.liveDeliveryAuth(origin, saved.ClientID))
+	if r != nil {
+		if oe := a.mcpResult(r, "Operation state: "+fmt.Sprint(r["state"])); oe != nil {
+			return oe
+		}
+	}
+	return e
 }

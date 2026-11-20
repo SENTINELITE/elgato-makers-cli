@@ -16,7 +16,7 @@ from that same release tarball.
 - `pkg/connect` carries its own `ContractVersion` and `pkg/workflows/v1` its own
   path version. Follow [ADAPTER.md](ADAPTER.md) when either changes, and make sure
   the CLI version moves accordingly.
-- Untagged builds report `0.9.0`, including outside a Git
+- Untagged builds report `0.9.1`, including outside a Git
   checkout. `make build` uses the version tag on the current commit when one is
   present and marks a dirty tagged build with `-dirty`. Override it with
   `make build VERSION=0.9.0-rc.1`. The release workflow sets the version from

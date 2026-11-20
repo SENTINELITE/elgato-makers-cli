@@ -136,7 +136,7 @@ func TestMCPRefreshStatusIsolationAndLogout(t *testing.T) {
 			if r.Header.Get("Authorization") != "Bearer rotated-access" {
 				t.Error("rotated access not used")
 			}
-			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"data":{"state":"connected","org_id":"synthetic-org","cookie":"DO-NOT-PRINT"}},"content":[{"type":"text","text":"DO-NOT-PRINT"}]}}`)
+			fmt.Fprint(w, `{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"connection":{"state":"connected","org_id":"synthetic-org","cookie":"DO-NOT-PRINT"},"authorization":{"cookie":"DO-NOT-PRINT"}},"content":[{"type":"text","text":"DO-NOT-PRINT"}]}}`)
 		case "/oauth/revoke":
 			r.ParseForm()
 			if r.Form.Get("token") != "rotated-refresh" || r.Form.Get("client_id") != "synthetic-cli" {

@@ -194,7 +194,7 @@ Hosted Google sign-in/OAuth is separate from Maker cookie authentication. Login 
 
 Only the explicit `maker mcp connect` / `maker cloud connect` one-time-link flow transfers your selected Maker session to a service, after consent. Review its exact origin and organization: the recipient can use and renew that session. Hosted logout removes/revokes this CLI's OAuth grant, not the remote Maker connection; disconnect Maker on the hosted account page. An interrupted OAuth refresh requires logout and fresh login, not deletion of its guard.
 
-Hosted CI policies can be set up at https://makers.sentinelite.com/ci or with `maker cloud login --write` and `maker ci policy create --file policy.json --open --wait`, without an MCP client. Both trusted browser confirmations remain required. Setup changes only CI permissions.
+Hosted CI policies can be set up at https://makers.sentinelite.com/ci or with `maker cloud login --write` and `maker ci policy create --file policy.json --open --wait`, without an MCP client. Review and confirm the policy in your signed-in browser. Setup changes only CI permissions.
 
 Optional hosted CI offers package preflight with no Elgato writes and owner-approved automatic update submissions. When a version is in review, the hosted service can queue the newest eligible release for that variant. See [hosted delivery and CI](docs/HOSTED-CI.md) for exact branch setup, default notes, queue behavior and verification. The CLI runs standalone without the hosted service.
 

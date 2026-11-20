@@ -97,7 +97,7 @@ func (a *app) ciCommands() *cobra.Command {
 				if !validCIPolicyApproval(result, origin) {
 					return errors.New("invalid CI policy approval URL or pending state; inspect the account CI settings")
 				}
-				fmt.Fprintf(a.o.Err, "Review this policy and complete both browser confirmations:\n%s\nOperation: %s\n", result.ApprovalURL, result.Operation)
+				fmt.Fprintf(a.o.Err, "Review this policy and confirm in the browser:\n%s\nOperation: %s\n", result.ApprovalURL, result.Operation)
 				if open {
 					if err := openMCPBrowser(result.ApprovalURL); err != nil {
 						return fmt.Errorf("could not open browser; use the printed approval URL: %w", err)
@@ -144,7 +144,7 @@ func (a *app) ciCommands() *cobra.Command {
 			c.Short = "List your connected account's CI policies"
 		}
 		if action == "create" || action == "disable" {
-			c.Flags().BoolVar(&wait, "wait", false, "Wait up to 12 minutes, then apply only after both browser confirmations")
+			c.Flags().BoolVar(&wait, "wait", false, "Wait up to 12 minutes, then apply only after browser confirmation")
 			c.Flags().BoolVar(&open, "open", false, "Open the exact approval URL in your browser")
 		}
 		policy.AddCommand(c)
